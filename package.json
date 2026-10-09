@@ -1,0 +1,50 @@
+{
+  "name": "paper-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.14.0" },
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "start": "tsx server/index.ts",
+    "test": "tsx --test tests/unit/*.test.ts",
+    "test:ui": "node scripts/test-ui.mjs",
+    "package:source": "node scripts/package-source.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@napi-rs/canvas": "^1.0.10",
+    "@resvg/resvg-js": "^2.6.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fabric": "^6.9.0",
+    "fflate": "^0.8.3",
+    "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^6.4.299",
+    "pdfkit": "^0.20.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "svg-to-pdfkit": "^0.1.8",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.1",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.3",
+    "@types/svg-to-pdfkit": "^0.1.4",
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4"
+  }
+}

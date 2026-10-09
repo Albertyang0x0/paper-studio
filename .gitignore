@@ -1,0 +1,27 @@
+node_modules/
+dist/
+.env*
+!.env.example
+.local/
+outputs/
+test-artifacts/
+archives/
+releases/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.idea/
+*.pem
+*.key
+
+# Local research records and unlicensed user-supplied visual references.
+docs/VALIDATION.md
+docs/WORKBENCH_VALIDATION.md
+scripts/iterate-visual.ts
+public/references/*.png
+public/references/*.jpg
+public/references/*.jpeg
+public/references/*.webp
