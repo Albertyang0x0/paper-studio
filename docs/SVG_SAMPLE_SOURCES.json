@@ -1,0 +1,291 @@
+{
+  "selectedAt": "2026-10-12",
+  "description": "Five compatible diagrams and one known unsupported diagram, retained byte-for-byte at the user request. Other samples and original provenance are archived outside the repository.",
+  "archive": "D:/Projects/SVG_Sample/SVG_TO_JSON_TEST",
+  "citationCaveat": "OpenAlex counts checked on 2026-10-12, differ from other databases. RNN and veloVI are peer-reviewed coverage additions, not labeled highly cited. NicheNet diagrams are current official companion diagrams with protocol updates, not asserted to be typeset 2020 publication figures.",
+  "files": [
+    {
+      "file": "ml01_rnn_lstm.svg",
+      "paperId": "rnn",
+      "figure": "Recurrent Unit, LSTM (Long Short Term Memory Diagram)",
+      "sourceUrl": "https://distill.pub/2019/memorization-in-rnns/graphics/lstm-web.svg",
+      "associationEvidence": "The official article directly links this SVG in the Recurrent Units section with the LSTM caption.",
+      "associationCertainty": "direct official paper asset",
+      "sha256": "53e8d691b0e7eb4245ef0a5c4f063a7e1dfb84d789c6f9a53fa44f319d31a00e",
+      "bytes": 88537,
+      "features": [
+        "physical mm dimensions",
+        "viewBox",
+        "symbol x21",
+        "use x24",
+        "marker x7",
+        "path-outlined formula glyphs"
+      ],
+      "paper": {
+        "id": "rnn",
+        "title": "Visualizing memorization in RNNs",
+        "authors": [
+          "Andreas Madsen"
+        ],
+        "year": 2019,
+        "doi": "10.23915/distill.00016",
+        "paperUrl": "https://distill.pub/2019/memorization-in-rnns/",
+        "citationCount": 26,
+        "citationSource": "https://api.openalex.org/works/https://doi.org/10.23915/distill.00016",
+        "openAlexId": "https://openalex.org/W2924992615",
+        "qualityEvidence": "The paper's Discussion and Review section links reviews by Abhinav Sharma, Dylan Cashman, and Ruth Fong. Selected as peer-reviewed SVG format coverage, not a high-citation claim.",
+        "license": "CC-BY-4.0",
+        "licenseEvidence": "The paper Reuse section licenses its diagrams and text under CC-BY 4.0 except explicitly attributed third-party figures. Selected LSTM/GRU diagrams have no third-party attribution caption."
+      },
+      "localPath": "SVG_TO_JSON_TEST/ml01_rnn_lstm.svg",
+      "compatibility": {
+        "status": "passed",
+        "scope": "SVG export and Canvas fidelity, JSON reopening",
+        "checkedAt": "2026-10-12"
+      }
+    },
+    {
+      "file": "ml02_rnn_gru.svg",
+      "paperId": "rnn",
+      "figure": "Recurrent Unit, GRU (Gated Recurrent Unit Diagram)",
+      "sourceUrl": "https://distill.pub/2019/memorization-in-rnns/graphics/gru-web.svg",
+      "associationEvidence": "The official article directly links this SVG in the Recurrent Units section with the GRU caption.",
+      "associationCertainty": "direct official paper asset",
+      "sha256": "6c65e7f6d0cf835f1919039f3087a827df3840c11a9c36d71014319c531cc4a4",
+      "bytes": 65114,
+      "features": [
+        "physical mm dimensions",
+        "viewBox",
+        "symbol x13",
+        "use x16",
+        "marker x9",
+        "text and tspan",
+        "path-outlined formula glyphs"
+      ],
+      "paper": {
+        "id": "rnn",
+        "title": "Visualizing memorization in RNNs",
+        "authors": [
+          "Andreas Madsen"
+        ],
+        "year": 2019,
+        "doi": "10.23915/distill.00016",
+        "paperUrl": "https://distill.pub/2019/memorization-in-rnns/",
+        "citationCount": 26,
+        "citationSource": "https://api.openalex.org/works/https://doi.org/10.23915/distill.00016",
+        "openAlexId": "https://openalex.org/W2924992615",
+        "qualityEvidence": "The paper's Discussion and Review section links reviews by Abhinav Sharma, Dylan Cashman, and Ruth Fong. Selected as peer-reviewed SVG format coverage, not a high-citation claim.",
+        "license": "CC-BY-4.0",
+        "licenseEvidence": "The paper Reuse section licenses its diagrams and text under CC-BY 4.0 except explicitly attributed third-party figures. Selected LSTM/GRU diagrams have no third-party attribution caption."
+      },
+      "localPath": "SVG_TO_JSON_TEST/ml02_rnn_gru.svg",
+      "compatibility": {
+        "status": "passed",
+        "scope": "SVG export and Canvas fidelity, JSON reopening",
+        "checkedAt": "2026-10-12"
+      }
+    },
+    {
+      "file": "ml04_deconv_uneven.svg",
+      "paperId": "deconv",
+      "figure": "Learned convolution with uneven overlap",
+      "sourceUrl": "https://distill.pub/2016/deconv-checkerboard/assets/upsample_LearnedConvUneven.svg",
+      "associationEvidence": "Exact SVG asset directly referenced in official article Overlap and Learning section.",
+      "associationCertainty": "direct official paper asset",
+      "sha256": "89560a33e0b2cda1415e2343d7c46ee0f91e1b9ded814a8c94b24fda2c7b0834",
+      "bytes": 10219,
+      "features": [
+        "linearGradient x24",
+        "gradient references",
+        "polyline x24",
+        "rect x32"
+      ],
+      "paper": {
+        "id": "deconv",
+        "title": "Deconvolution and Checkerboard Artifacts",
+        "authors": [
+          "Augustus Odena",
+          "Vincent Dumoulin",
+          "Chris Olah"
+        ],
+        "year": 2016,
+        "doi": "10.23915/distill.00003",
+        "paperUrl": "https://distill.pub/2016/deconv-checkerboard/",
+        "citationCount": 1638,
+        "citationSource": "https://api.openalex.org/works/https://doi.org/10.23915/distill.00003",
+        "openAlexId": "https://openalex.org/W2535388113",
+        "license": "CC-BY-2.0",
+        "licenseEvidence": "The paper Citations and Reuse section licenses its diagrams and text under CC-BY 2.0 except explicitly attributed third-party figures. Selected uneven/even-overlap original diagrams have no third-party attribution caption."
+      },
+      "localPath": "SVG_TO_JSON_TEST/ml04_deconv_uneven.svg",
+      "compatibility": {
+        "status": "passed",
+        "scope": "SVG export and Canvas fidelity, JSON reopening",
+        "checkedAt": "2026-10-12"
+      }
+    },
+    {
+      "file": "ml05_deconv_even.svg",
+      "paperId": "deconv",
+      "figure": "Learned convolution with even overlap",
+      "sourceUrl": "https://distill.pub/2016/deconv-checkerboard/assets/upsample_LearnedConvEven.svg",
+      "associationEvidence": "Exact SVG asset directly referenced in official article Overlap and Learning section.",
+      "associationCertainty": "direct official paper asset",
+      "sha256": "212e88a6ec5e4b23c83904921e5f88bab2c759adb85cb778a3a9338c5bb08e8d",
+      "bytes": 8420,
+      "features": [
+        "linearGradient x16",
+        "gradient references",
+        "polyline x16",
+        "rect x34"
+      ],
+      "paper": {
+        "id": "deconv",
+        "title": "Deconvolution and Checkerboard Artifacts",
+        "authors": [
+          "Augustus Odena",
+          "Vincent Dumoulin",
+          "Chris Olah"
+        ],
+        "year": 2016,
+        "doi": "10.23915/distill.00003",
+        "paperUrl": "https://distill.pub/2016/deconv-checkerboard/",
+        "citationCount": 1638,
+        "citationSource": "https://api.openalex.org/works/https://doi.org/10.23915/distill.00003",
+        "openAlexId": "https://openalex.org/W2535388113",
+        "license": "CC-BY-2.0",
+        "licenseEvidence": "The paper Citations and Reuse section licenses its diagrams and text under CC-BY 2.0 except explicitly attributed third-party figures. Selected uneven/even-overlap original diagrams have no third-party attribution caption."
+      },
+      "localPath": "SVG_TO_JSON_TEST/ml05_deconv_even.svg",
+      "compatibility": {
+        "status": "passed",
+        "scope": "SVG export and Canvas fidelity, JSON reopening",
+        "checkedAt": "2026-10-12"
+      }
+    },
+    {
+      "file": "nichenet_input_decision_tree.svg",
+      "repo": "saeyslab/nichenetr",
+      "commit": "66f90d5eeafef280b2b2f339b3fd70ffec1781dd",
+      "path": "vignettes/images/figure2.svg",
+      "paperId": "nichenet",
+      "relatedPaperIds": [
+        "nichenet-protocol"
+      ],
+      "figureDescription": "Author-maintained NicheNet input selection decision tree: sender-focused/agnostic and gene set/background definitions",
+      "association": {
+        "certainty": "official companion method diagram, NOT asserted to be a typeset published panel",
+        "evidenceUrl": "https://github.com/saeyslab/nichenetr/blob/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/vignettes/images/figure2.svg",
+        "note": "Figure is in the official method package vignettes/images directory. Related method papers documented in repository README. Filename figure2 must not be confused with Nature Methods Figure 2."
+      },
+      "license": {
+        "name": "GPL-3 (package repository); no separate figure-specific declaration found",
+        "evidenceUrl": "https://github.com/saeyslab/nichenetr/blob/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/DESCRIPTION",
+        "archivedLocalEvidence": "D:/Projects/SVG_Sample/SVG_TO_JSON_TEST/PAPER_CORPUS_20261012/DESCRIPTION.nichenetr.txt"
+      },
+      "sourceUrl": "https://raw.githubusercontent.com/saeyslab/nichenetr/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/vignettes/images/figure2.svg",
+      "bytes": 14277,
+      "sha256": "01f498a72a8b63c0f71e358a08d4a5182f52dbbc95b996c64d139e655ab0e5b4",
+      "originalBytes": true,
+      "generator": null,
+      "elementCounts": {
+        "svg": 1,
+        "defs": 1,
+        "clipPath": 1,
+        "rect": 12,
+        "g": 1,
+        "text": 65,
+        "path": 10
+      },
+      "paper": {
+        "id": "nichenet",
+        "title": "NicheNet: modeling intercellular communication by linking ligands to target genes",
+        "doi": "10.1038/s41592-019-0667-5",
+        "paperUrl": "https://www.nature.com/articles/s41592-019-0667-5",
+        "venue": "Nature Methods",
+        "publicationDate": "2019-12-09",
+        "citedByCount": 2147,
+        "openAlexId": "https://openalex.org/W2992151131",
+        "citationEvidence": {
+          "provider": "OpenAlex",
+          "sourceUrl": "https://api.openalex.org/works/https://doi.org/10.1038/s41592-019-0667-5",
+          "checkedAt": "2026-10-12",
+          "count": 2147,
+          "note": "Live provider count, not Google Scholar; database counts differ."
+        }
+      },
+      "localPath": "SVG_TO_JSON_TEST/nichenet_input_decision_tree.svg",
+      "compatibility": {
+        "status": "passed",
+        "scope": "SVG export and Canvas fidelity, JSON reopening",
+        "checkedAt": "2026-10-12"
+      }
+    },
+    {
+      "file": "nichenet_workflow.svg",
+      "repo": "saeyslab/nichenetr",
+      "commit": "66f90d5eeafef280b2b2f339b3fd70ffec1781dd",
+      "path": "vignettes/images/figure1.svg",
+      "paperId": "nichenet",
+      "relatedPaperIds": [
+        "nichenet-protocol"
+      ],
+      "figureDescription": "Author-maintained NicheNet input/output and ligand-target analysis workflow",
+      "association": {
+        "certainty": "official companion diagram, NOT asserted to be the typeset Nature Methods Figure 1",
+        "evidenceUrl": "https://github.com/saeyslab/nichenetr/blob/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/README.md",
+        "note": "README directly embeds this SVG and cites both NicheNet Nature Methods paper and later Nature Protocols workflow. Current figure includes best-practice updates. Do not label it a publisher figure or infer it is the original 2020 diagram."
+      },
+      "license": {
+        "name": "GPL-3 (package repository); figure contains third-party Noun Project credits",
+        "evidenceUrl": "https://github.com/saeyslab/nichenetr/blob/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/DESCRIPTION",
+        "note": "Original bytes retain embedded Rean-me / Noun Project attributions. No separate image-specific license was found; kept as local compatibility test data, not asserted universally redistributable.",
+        "archivedLocalEvidence": "D:/Projects/SVG_Sample/SVG_TO_JSON_TEST/PAPER_CORPUS_20261012/DESCRIPTION.nichenetr.txt"
+      },
+      "sourceUrl": "https://raw.githubusercontent.com/saeyslab/nichenetr/66f90d5eeafef280b2b2f339b3fd70ffec1781dd/vignettes/images/figure1.svg",
+      "bytes": 169334,
+      "sha256": "f0bc9870d73c413ba713e50f7c43280ad497cd8fb1ab881d35dc550c04b39aac",
+      "originalBytes": true,
+      "generator": null,
+      "elementCounts": {
+        "svg": 1,
+        "metadata": 1,
+        "rdf:RDF": 1,
+        "cc:Work": 1,
+        "dc:format": 1,
+        "dc:type": 1,
+        "sodipodi:namedview": 1,
+        "defs": 1,
+        "clipPath": 22,
+        "rect": 9,
+        "linearGradient": 3,
+        "stop": 503,
+        "path": 219,
+        "g": 22,
+        "text": 195
+      },
+      "paper": {
+        "id": "nichenet",
+        "title": "NicheNet: modeling intercellular communication by linking ligands to target genes",
+        "doi": "10.1038/s41592-019-0667-5",
+        "paperUrl": "https://www.nature.com/articles/s41592-019-0667-5",
+        "venue": "Nature Methods",
+        "publicationDate": "2019-12-09",
+        "citedByCount": 2147,
+        "openAlexId": "https://openalex.org/W2992151131",
+        "citationEvidence": {
+          "provider": "OpenAlex",
+          "sourceUrl": "https://api.openalex.org/works/https://doi.org/10.1038/s41592-019-0667-5",
+          "checkedAt": "2026-10-12",
+          "count": 2147,
+          "note": "Live provider count, not Google Scholar; database counts differ."
+        }
+      },
+      "localPath": "SVG_TO_JSON_TEST/nichenet_workflow.svg",
+      "compatibility": {
+        "status": "unsupported",
+        "reason": "spreadMethod=reflect"
+      }
+    }
+  ]
+}

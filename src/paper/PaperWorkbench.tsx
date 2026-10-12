@@ -183,6 +183,12 @@ export default function PaperWorkbench() {
     | undefined
   >(undefined);
   const nextCanvasAsset = useRef<FigureAsset | null | undefined>(undefined);
+  const [canvasAssetSelection, setCanvasAssetSelection] = useState("current");
+  useEffect(() => {
+    nextCanvasAsset.current = undefined;
+    figureBase.current = undefined;
+    setCanvasAssetSelection("current");
+  }, [project?.id]);
   const active = project?.modules[selected],
     dirty = !!active && editor !== active.content;
   const textConnection=connectionSettings?.connections.find(c=>c.id===(connectionId||connectionSettings.defaultConnectionId));
@@ -349,7 +355,18 @@ export default function PaperWorkbench() {
       )
         return;
       if (event.data?.type === "paper-workbench:figure-ready") {
-        sendToCanvas(nextCanvasAsset.current);
+        // null records an intentional close even if the iframe was unmounted
+        // before its debounced local storage update. An explicit asset reopens it.
+        const keepClosed = nextCanvasAsset.current === null ||
+          (nextCanvasAsset.current === undefined && event.data.projectClosed === true);
+        sendToCanvas(keepClosed ? null : nextCanvasAsset.current, keepClosed);
+      }
+      if (event.data?.type === "paper-workbench:figure-closed") {
+        nextCanvasAsset.current = null;
+        if (figureBase.current) figureBase.current = { ...figureBase.current, previousAssetId: undefined };
+        setCanvasAssetSelection("new");
+      }
+      if (event.data?.type === "paper-workbench:figure-opened" && nextCanvasAsset.current === null) {
         nextCanvasAsset.current = undefined;
       }
       if (
@@ -372,9 +389,11 @@ export default function PaperWorkbench() {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
-  function sendToCanvas(asset?: FigureAsset | null) {
+  function sendToCanvas(asset?: FigureAsset | null, projectClosed = false) {
     const p = projectRef.current;
     if (!p || !frame.current?.contentWindow) return;
+    nextCanvasAsset.current = projectClosed ? null : undefined;
+    setCanvasAssetSelection(asset === null ? "new" : asset?.id ?? "current");
     const current =
       asset === null
         ? undefined
@@ -399,6 +418,7 @@ export default function PaperWorkbench() {
       {
         type: "paper-workbench:load-figure",
         scene: current?.scene ?? null,
+        projectClosed,
         materials,
         intent:
           "Create a methodology overview grounded in the supplied materials. Describe the actual proposed mechanism and its modules. Do not invent experimental curves, improvements or evidence.",
@@ -833,7 +853,7 @@ export default function PaperWorkbench() {
               {view === "canvas" && selected === "figures" ? <div className="pw-canvas-switcher">
                   <select
                     aria-label="选择画板中的图"
-                    defaultValue="current"
+                    value={canvasAssetSelection}
                     onChange={(e) => {
                       if (!confirm("切换画板会放弃未提交的编辑，继续吗？"))
                         return;
@@ -877,6 +897,7 @@ export default function PaperWorkbench() {
             {view === "canvas" && selected === "figures" ? (
               <div className="pw-canvas-wrap">
                 <iframe
+                  key={project.id}
                   title="论文矢量画板"
                   ref={frame}
                   src={`/figure?paper=${project.id}`}

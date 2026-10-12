@@ -20,28 +20,59 @@ export const escapeXml = (v: unknown) =>
         "'": "&apos;",
       })[c]!,
   );
-export function primitiveSvg(raw: Primitive, style: StyleTokens): string {
+export function primitiveSvg(raw: Primitive, style: StyleTokens, literalText = false, assets?: FigureScene["assets"]): string {
   const e = expandPrimitive(raw),
     id = escapeXml(e.id),
     gradientId = "paint-" + id,
     fill = e.gradient ? `url(#${gradientId})` : escapeXml(e.fill ?? (e.type === "text" ? style.ink : "none")),
     stroke = escapeXml(e.stroke ?? "none");
   const paint = e.gradient ? `<defs><linearGradient id="${gradientId}" x1="${e.gradient.x1 * 100}%" y1="${e.gradient.y1 * 100}%" x2="${e.gradient.x2 * 100}%" y2="${e.gradient.y2 * 100}%">${e.gradient.stops.map(stop => `<stop offset="${stop.offset * 100}%" stop-color="${escapeXml(stop.color)}" stop-opacity="${stop.opacity ?? 1}"/>`).join("")}</linearGradient></defs>` : "";
-  const common = `data-object-id="${id}" fill="${fill}" stroke="${stroke}" stroke-width="${e.strokeWidth ?? style.lineWidth}" opacity="${e.opacity ?? 1}"${e.dash?.length ? ` stroke-dasharray="${e.dash.join(" ")}"` : ""}`;
+  const importedStyle = `${e.fillRule ? ` fill-rule="${escapeXml(e.fillRule)}"` : ""}${e.strokeLineCap ? ` stroke-linecap="${escapeXml(e.strokeLineCap)}"` : ""}${e.strokeLineJoin ? ` stroke-linejoin="${escapeXml(e.strokeLineJoin)}"` : ""}${e.strokeMiterLimit !== undefined ? ` stroke-miterlimit="${e.strokeMiterLimit}"` : ""}${e.strokeDashOffset !== undefined ? ` stroke-dashoffset="${e.strokeDashOffset}"` : ""}${e.paintOrder ? ` paint-order="${escapeXml(e.paintOrder)}"` : ""}`;
+  const common = `data-object-id="${id}" fill="${fill}" stroke="${stroke}" stroke-width="${e.strokeWidth ?? style.lineWidth}" opacity="${e.svgShadow ? 1 : e.opacity ?? 1}"${e.dash?.length ? ` stroke-dasharray="${e.dash.join(" ")}"` : ""}${importedStyle}`;
   const transform = `translate(${e.x} ${e.y})${e.rotation ? ` rotate(${e.rotation})` : ""}${e.scaleX || e.scaleY ? ` scale(${e.scaleX ?? 1} ${e.scaleY ?? 1})` : ""}`;
+  const resourceKey = Array.from(e.id).map(char => char.codePointAt(0)!.toString(16)).join("-");
+  function effects(content: string): string {
+    let definitions = "", result = content;
+    if (e.svgShadow) {
+      const shadow = e.svgShadow, filterId = "shadow-" + resourceKey, region = shadow.region;
+      const spread = shadow.spread > 0
+        ? '<feMorphology in="SourceAlpha" operator="dilate" radius="' + shadow.spread + '" result="spread"/>'
+        : "";
+      const offset = '<feOffset in="' + (spread ? "spread" : "SourceAlpha") + '" dx="' + shadow.dx + '" dy="' + shadow.dy + '" result="offset"/>';
+      const knockout = shadow.knockout ? '<feComposite in="offset" in2="SourceAlpha" operator="out" result="silhouette"/>' : "";
+      // Imported colors store the original linear-RGB color-matrix constants.
+      const color = shadow.color.match(/^rgba\(\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)\s*,\s*([\d.eE+-]+)\s*\)$/);
+      if (!color || color.slice(1).some(value => !Number.isFinite(Number(value)))) throw new Error("Invalid SVG shadow color");
+      const matrix = [0, 0, 0, 0, Number(color[1]) / 255, 0, 0, 0, 0, Number(color[2]) / 255, 0, 0, 0, 0, Number(color[3]) / 255, 0, 0, 0, Number(color[4]), 0];
+      definitions += '<filter id="' + filterId + '" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="' + region.x + '" y="' + region.y + '" width="' + region.width + '" height="' + region.height + '" color-interpolation-filters="linearRGB">' +
+        spread + offset + knockout + '<feColorMatrix in="' + (shadow.knockout ? "silhouette" : "offset") + '" values="' + matrix.join(" ") + '"/></filter>';
+      result = '<g filter="url(#' + filterId + ')">' + result + '</g>';
+    }
+    for (const [index, clip] of (e.clip ?? []).entries()) {
+      const clipId = "clip-" + resourceKey + "-" + index;
+      definitions += '<clipPath id="' + clipId + '" clipPathUnits="userSpaceOnUse"><path d="' + escapeXml(clip.path) + '" clip-rule="' + (clip.fillRule ?? "nonzero") + '" fill-rule="' + (clip.fillRule ?? "nonzero") + '"/></clipPath>';
+      result = '<g clip-path="url(#' + clipId + ')">' + result + '</g>';
+    }
+    return (definitions ? "<defs>" + definitions + "</defs>" : "") + result;
+  }
   if (e.type === "group")
-    return `<g data-object-id="${id}" transform="${transform}">${(e.children ?? []).map((c) => primitiveSvg(c, style)).join("")}</g>`;
+    return `<g data-object-id="${id}" transform="${transform}" opacity="${e.opacity ?? 1}"${importedStyle}>${effects((e.children ?? []).map((c) => primitiveSvg(c, style, literalText, assets)).join(""))}</g>`;
   let shape = "";
+  if (e.type === "image") {
+    const asset = e.assetId ? assets?.[e.assetId] : undefined;
+    if (!asset || !/^data:image\/(?:png|jpeg);base64,[a-z0-9+/\s=]+$/i.test(asset.dataUrl)) throw new Error("SVG image asset is missing or invalid: " + e.assetId);
+    shape = '<image ' + common + ' href="' + escapeXml(asset.dataUrl) + '" width="' + (e.width ?? asset.width) + '" height="' + (e.height ?? asset.height) + '" preserveAspectRatio="none"/>';
+  }
   if (e.type === "rect")
     shape = `<rect ${common} width="${e.width ?? 10}" height="${e.height ?? 10}" rx="${e.radius ?? 0}"/>`;
   if (e.type === "ellipse")
     shape = `<ellipse ${common} cx="${(e.width ?? 10) / 2}" cy="${(e.height ?? 10) / 2}" rx="${(e.width ?? 10) / 2}" ry="${(e.height ?? 10) / 2}"/>`;
   if (e.type === "path")
-    shape = `<path ${common} d="${escapeXml(e.path)}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    shape = `<path ${common} d="${escapeXml(e.path)}"${e.strokeLineJoin ? "" : ' stroke-linejoin="round"'}${e.strokeLineCap ? "" : ' stroke-linecap="round"'}/>`;
   if (e.type === "polygon")
     shape = `<polygon ${common} points="${(e.points ?? []).map((p) => `${p.x},${p.y}`).join(" ")}"/>`;
   if (e.type === "line")
-    shape = `<line ${common} x1="0" y1="0" x2="${e.width ?? 0}" y2="${e.height ?? 0}" stroke-linecap="round"/>`;
+    shape = `<line ${common} x1="0" y1="0" x2="${e.width ?? 0}" y2="${e.height ?? 0}"${e.strokeLineCap ? "" : ' stroke-linecap="round"'}/>`;
   if (e.type === "text") {
     const size = e.fontSize ?? style.bodySize,
       anchor =
@@ -52,9 +83,8 @@ export function primitiveSvg(raw: Primitive, style: StyleTokens): string {
           : e.align === "right"
             ? (e.width ?? 0)
             : 0;
-    shape = `<text ${common} font-family="${escapeXml(e.fontFamily ?? style.font)}" font-size="${size}" font-weight="${e.fontWeight ?? 400}"${e.italic ? ' font-style="italic"' : ""} text-anchor="${anchor}">${displayMath(
-      String(e.text ?? ""),
-    )
+    const content = String(e.text ?? "");
+    shape = `<text ${common}${literalText ? ' xml:space="preserve"' : ""} font-family="${escapeXml(e.fontFamily ?? style.font)}" font-size="${size}" font-weight="${e.fontWeight ?? 400}"${e.letterSpacing !== undefined ? ` letter-spacing="${e.letterSpacing}"` : ""}${e.italic ? ' font-style="italic"' : ""}${e.underline ? ' text-decoration="underline"' : ""} text-anchor="${anchor}">${(literalText ? content : displayMath(content))
       .split("\n")
       .map(
         (line, i) =>
@@ -62,7 +92,7 @@ export function primitiveSvg(raw: Primitive, style: StyleTokens): string {
       )
       .join("")}</text>`;
   }
-  return `<g transform="${transform}">${paint}${shape}</g>`;
+  return '<g transform="' + transform + '"' + (e.svgShadow ? ' opacity="' + (e.opacity ?? 1) + '"' : '') + '>' + paint + effects(shape) + '</g>';
 }
 export function connectionPort(
   module: SceneModule,
@@ -349,6 +379,7 @@ export function roundedPath(points: Point[], radius = 10) {
 }
 export function sceneSvg(scene: FigureScene, metadata = true) {
   const s = scene.style;
+  const literalText = scene.figureType === "svg-import";
   const defs = scene.connectors
     .map(
       (e, i) =>
@@ -358,7 +389,7 @@ export function sceneSvg(scene: FigureScene, metadata = true) {
   const regions = scene.regions
     .map(
       (r) =>
-        `<g data-region-id="${escapeXml(r.id)}"><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="16" fill="${escapeXml(r.fill)}" stroke="${escapeXml(r.stroke ?? s.muted)}" stroke-width="1.5"${r.dash ? ' stroke-dasharray="7 5"' : ""}/>${primitiveSvg({ id: r.id + "-title", type: "text", x: r.x + 18, y: r.y + 12, text: r.title, fontSize: s.titleSize, fontWeight: 700 }, s)}</g>`,
+        `<g data-region-id="${escapeXml(r.id)}"><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="16" fill="${escapeXml(r.fill)}" stroke="${escapeXml(r.stroke ?? s.muted)}" stroke-width="1.5"${r.dash ? ' stroke-dasharray="7 5"' : ""}/>${primitiveSvg({ id: r.id + "-title", type: "text", x: r.x + 18, y: r.y + 12, text: r.title, fontSize: s.titleSize, fontWeight: 700 }, s, literalText)}</g>`,
     )
     .join("");
   const edges = scene.connectors
@@ -366,17 +397,17 @@ export function sceneSvg(scene: FigureScene, metadata = true) {
       const g = connectorGeometry(e, scene);
       if (!g) return "";
       const paths=(g.pieces??[{path:g.path,color:e.color}]).map((p,index,array)=>`<path d="${p.path}" fill="none" stroke="${escapeXml(p.color??s.ink)}" stroke-width="${e.strokeWidth ?? s.lineWidth}"${e.dash?' stroke-dasharray="7 5"':''} stroke-linecap="round"${index===array.length-1?` marker-end="url(#arrow${i})"`:''}/>`).join('');
-      return `<g data-connector-id="${escapeXml(e.id)}">${paths}${shouldRenderConnectorLabel(e,scene) ? primitiveSvg({ id: e.id + "-label", type: "text", x: g.label.x - 70, y: g.label.y - 17, width: 140, text: e.label, align: "center", fill: e.color ?? s.ink, fontSize: Math.max(s.minimumFontSize??17, s.bodySize - 3) }, s) : ""}</g>`;
+      return `<g data-connector-id="${escapeXml(e.id)}">${paths}${shouldRenderConnectorLabel(e,scene) ? primitiveSvg({ id: e.id + "-label", type: "text", x: g.label.x - 70, y: g.label.y - 17, width: 140, text: e.label, align: "center", fill: e.color ?? s.ink, fontSize: Math.max(s.minimumFontSize??17, s.bodySize - 3) }, s, literalText) : ""}</g>`;
     })
     .join("");
   const modules = scene.modules
     .map(
       (m) =>
-        `<g data-module-id="${escapeXml(m.id)}" transform="translate(${m.x} ${m.y}) scale(${m.width / (m.contentWidth ?? m.width)} ${m.height / (m.contentHeight ?? m.height)})">${m.elements.map((e) => primitiveSvg(e, s)).join("")}</g>`,
+        `<g data-module-id="${escapeXml(m.id)}" transform="translate(${m.x} ${m.y}) scale(${m.width / (m.contentWidth ?? m.width)} ${m.height / (m.contentHeight ?? m.height)})">${m.elements.map((e) => primitiveSvg(e, s, literalText, scene.assets)).join("")}</g>`,
     )
     .join("");
-  const backgrounds = scene.annotations.filter(e => e.layer === "background").map(e => primitiveSvg(e, s)).join("");
-  const foregrounds = scene.annotations.filter(e => e.layer !== "background").map(e => primitiveSvg(e, s)).join("");
+  const backgrounds = scene.annotations.filter(e => e.layer === "background").map(e => primitiveSvg(e, s, literalText, scene.assets)).join("");
+  const foregrounds = scene.annotations.filter(e => e.layer !== "background").map(e => primitiveSvg(e, s, literalText, scene.assets)).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}"><title>${escapeXml(scene.title)}</title>${metadata ? `<metadata>${escapeXml(JSON.stringify(scene))}</metadata>` : ""}<defs>${defs}</defs><rect width="100%" height="100%" fill="#ffffff"/>${regions}${backgrounds}${edges}${modules}${foregrounds}</svg>`;
 }
 export function allPrimitives(elements: Primitive[]): Primitive[] {
