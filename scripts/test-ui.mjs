@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const cwd = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 if (process.argv.includes('--help')) {
-  console.log('Usage: npm run test:ui\nRuns GUI tests on port 8788 with isolated temporary storage and automatic cleanup.\nOptional: PAPER_TEST_PYTHON specifies a Python executable with Playwright.');
+  console.log('Usage: npm run test:ui [-- --svg-only | --svg-compat-only | --svg-scientific-only | --close-only | --canvas-navigation-only | --manual-grouping-only]\nRuns GUI tests on port 8788 with isolated temporary storage and automatic cleanup.\n--svg-only runs direct SVG import/edit/export; --svg-compat-only checks all SVG samples, fidelity, assets, and effects; --svg-scientific-only checks scientific styles, units, text spacing, static conversion, and input safety; --close-only runs close-project checks; --canvas-navigation-only checks keyboard viewport navigation; --manual-grouping-only checks reviewed box selection and manual grouping.\nOptional: PAPER_TEST_PYTHON specifies a Python executable with Playwright; PAPER_TEST_NODE_MODULES specifies a node_modules directory containing Node Playwright; PAPER_TEST_SVG_COMPAT_FILES selects compatibility samples; PAPER_TEST_SVG_CORPUS_DIR selects an additional SVG corpus.');
   process.exit(0);
 }
 const temporaryParent = resolve(tmpdir());
@@ -40,20 +40,29 @@ try {
   }
   if (!ready) throw Error('Isolated test server did not become ready');
   console.log('GUI tests are isolated from the live system; no paid model calls.');
-  const python = process.env.PAPER_TEST_PYTHON ?? 'python';
-  await command(python, ['tests/browser/workbench_browser.py']);
-  await command(python, ['tests/browser/split_batch_browser.py']);
-  await command(python, ['tests/browser/figure_failure_browser.py']);
-  await command(python, ['tests/browser/canvas_ui_browser.py']);
-  await command(python, ['tests/browser/reconstruction_edit_browser.py']);
-  if (process.env.PAPER_TEST_SKIP_PDF === '1') console.log('Explicitly skipping TWO PDF/template GUI suites; PDF compilation was not verified.');
-  else {
-    await command(python, ['tests/browser/minimal_ui_browser.py']);
-    await command(python, ['tests/browser/pdf_preview_browser.py']);
+  const svgOnly = process.argv.includes('--svg-only'), compatibilityOnly = process.argv.includes('--svg-compat-only'), scientificOnly = process.argv.includes('--svg-scientific-only'), closeOnly = process.argv.includes('--close-only'), navigationOnly = process.argv.includes('--canvas-navigation-only'), groupingOnly = process.argv.includes('--manual-grouping-only');
+  if (!closeOnly && !compatibilityOnly && !scientificOnly && !navigationOnly && !groupingOnly) await command(process.execPath, ['tests/browser/svg_import_browser.mjs']);
+  if (!svgOnly && !closeOnly && !scientificOnly && !navigationOnly && !groupingOnly) await command(process.execPath, ['tests/browser/svg_compatibility_browser.mjs']);
+  if (!svgOnly && !closeOnly && !compatibilityOnly && !navigationOnly && !groupingOnly) await command(process.execPath, ['tests/browser/svg_scientific_browser.mjs']);
+  if (!svgOnly && !compatibilityOnly && !scientificOnly && !navigationOnly && !groupingOnly) await command(process.execPath, ['tests/browser/close_project_browser.mjs']);
+  if (!svgOnly && !compatibilityOnly && !scientificOnly && !closeOnly && !groupingOnly) await command(process.execPath, ['tests/browser/canvas_navigation_browser.mjs']);
+  if (!svgOnly && !compatibilityOnly && !scientificOnly && !closeOnly && !navigationOnly) await command(process.execPath, ['tests/browser/manual_grouping_browser.mjs']);
+  if (!svgOnly && !compatibilityOnly && !scientificOnly && !closeOnly && !navigationOnly && !groupingOnly) {
+    const python = process.env.PAPER_TEST_PYTHON ?? 'python';
+    await command(python, ['tests/browser/workbench_browser.py']);
+    await command(python, ['tests/browser/split_batch_browser.py']);
+    await command(python, ['tests/browser/figure_failure_browser.py']);
+    await command(python, ['tests/browser/canvas_ui_browser.py']);
+    await command(python, ['tests/browser/reconstruction_edit_browser.py']);
+    if (process.env.PAPER_TEST_SKIP_PDF === '1') console.log('Explicitly skipping TWO PDF/template GUI suites; PDF compilation was not verified.');
+    else {
+      await command(python, ['tests/browser/minimal_ui_browser.py']);
+      await command(python, ['tests/browser/pdf_preview_browser.py']);
+    }
+    await command(process.execPath, ['--import', 'tsx', 'tests/browser/pending_figure_edit.ts']);
+    await command(python, ['tests/browser/api_settings_browser.py']);
+    await command(python, ['tests/browser/provider_connections_browser.py']);
   }
-  await command(process.execPath, ['--import', 'tsx', 'tests/browser/pending_figure_edit.ts']);
-  await command(python, ['tests/browser/api_settings_browser.py']);
-  await command(python, ['tests/browser/provider_connections_browser.py']);
   server.kill();
   await serverDone;
   console.log('GUI regression checks passed.');

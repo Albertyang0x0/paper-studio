@@ -38,6 +38,27 @@ export interface SemanticPlan {
   relationships: { from: string; to: string; meaning: string }[];
   constraints: string[];
 }
+export interface SceneImageAsset {
+  mimeType: "image/png" | "image/jpeg";
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+export interface PrimitiveClip {
+  /** Path in the primitive's local coordinate system. Multiple clips intersect. */
+  path: string;
+  fillRule?: "nonzero" | "evenodd";
+}
+export interface SvgShadow {
+  /** The supported SVG filter produces only the shadow, not SourceGraphic. */
+  dx: number;
+  dy: number;
+  spread: number;
+  /** Original linear-RGB matrix constants encoded as rgba(R*255,G*255,B*255,A). */
+  color: string;
+  knockout: boolean;
+  region: { x: number; y: number; width: number; height: number };
+}
 export interface Primitive {
   id: string;
   type:
@@ -48,6 +69,7 @@ export interface Primitive {
     | "line"
     | "polygon"
     | "group"
+    | "image"
     | "symbol";
   x: number;
   y: number;
@@ -62,12 +84,22 @@ export interface Primitive {
   layer?: "background" | "foreground";
   stroke?: string;
   strokeWidth?: number;
+  fillRule?: "nonzero" | "evenodd";
+  strokeLineCap?: "butt" | "round" | "square";
+  strokeLineJoin?: "miter" | "round" | "bevel";
+  strokeMiterLimit?: number;
+  strokeDashOffset?: number;
+  paintOrder?: "fill stroke" | "stroke fill";
   radius?: number;
   text?: string;
   containerId?: string;
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: number;
+  /** Extra spacing between characters in the primitive's local SVG units. */
+  letterSpacing?: number;
+  /** A native, editable underline carried by imported SVG text. */
+  underline?: boolean;
   align?: "left" | "center" | "right";
   italic?: boolean;
   path?: string;
@@ -76,6 +108,9 @@ export interface Primitive {
   opacity?: number;
   rotation?: number;
   children?: Primitive[];
+  assetId?: string;
+  clip?: PrimitiveClip[];
+  svgShadow?: SvgShadow;
   symbol?: string;
   locked?: boolean;
   sourceRefs?: string[];
@@ -145,6 +180,19 @@ export interface SceneModule extends ModuleBrief {
   contentWidth?: number;
   contentHeight?: number;
 }
+/** A logical editing selection; source objects keep their original paint order. */
+export interface GroupMember {
+  kind: "module" | "primitive" | "group";
+  id: string;
+  moduleId?: string;
+}
+export interface ManualGroup {
+  id: string;
+  title: string;
+  /** Absent for whole-figure groups; otherwise members use this module's frame. */
+  moduleId?: string;
+  members: GroupMember[];
+}
 export interface FigureScene {
   schema: "paper-atelier/1";
   id: string;
@@ -157,6 +205,8 @@ export interface FigureScene {
   modules: SceneModule[];
   connectors: Connector[];
   annotations: Primitive[];
+  manualGroups?: ManualGroup[];
+  assets?: Record<string, SceneImageAsset>;
   semanticPlan?: SemanticPlan;
   designRationale?: string;
   materials?: Material[];

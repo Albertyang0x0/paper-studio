@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  FolderClosed,
   FolderOpen,
   Layers,
   Loader2,
@@ -39,11 +40,16 @@ import type {
   WorkerRole,
   WorkerMethod,
   PlanningCheckpoint,
+  GroupMember,
 } from "../../shared/types";
 import { allPrimitives, patchPrimitive, sceneSvg } from "../../shared/svg";
 import { objectIsLocked } from "../../shared/locks";
+import { createManualGroup, memberKey, pruneManualGroups, ungroupManualGroup } from "../../shared/manual-groups";
 import { CanvasEditor } from "./CanvasEditor";
+import { importSvg } from "./import-svg";
 import { GenerationDialog } from "./GenerationDialog";
+import { CloseProjectDialog } from "./CloseProjectDialog";
+import { ManualGroupLayers, ManualGroupingPanel } from "./ManualGroupingPanel";
 import { ApiSettingsButton } from '../settings/ApiSettings';
 import { useApiSettingsUpdates } from '../settings/api-settings-events';
 import { ConnectionSelect, useConnectionSettings } from '../settings/ConnectionSelect';
@@ -91,6 +97,7 @@ const modelRoles = [
   ["critic", "视觉与科学审查"],
 ] as const;
 type Selection = {
+  groupId?: string;
   moduleId?: string;
   elementId?: string;
   connectorId?: string;
@@ -102,7 +109,9 @@ const initialIntent =
 function readSaved() {
   try {
     const raw = localStorage.getItem(storageKey);
-    return raw ? JSON.parse(raw) : {};
+    const saved = raw ? JSON.parse(raw) : {};
+    if (saved.scene) saved.scene = pruneManualGroups(saved.scene);
+    return saved;
   } catch {
     return {};
   }
@@ -143,6 +152,13 @@ function removeElement(items: Primitive[], id: string): Primitive[] {
 export default function App() {
   const connectionSettings=useConnectionSettings();
   const saved = useRef(readSaved()).current;
+  const projectClosed = useRef(saved.projectClosed === true);
+  const projectEpoch = useRef(0);
+  const [projectVersion, setProjectVersion] = useState(0);
+  const invalidateProjectReads = () => {
+    projectEpoch.current++;
+    setProjectVersion(v => v + 1);
+  };
   const [scene, setScene] = useState<FigureScene | undefined>(saved.scene),
     [materials, setMaterials] = useState<Material[]>(saved.materials ?? []),
     [intent, setIntent] = useState(saved.intent ?? initialIntent),
@@ -156,6 +172,8 @@ export default function App() {
       saved.scene ? "layers" : "materials",
     ),
     [generationOpen, setGenerationOpen] = useState(false),
+    [closeProjectOpen, setCloseProjectOpen] = useState(false),
+    [closeProjectError, setCloseProjectError] = useState(""),
     [generationTab, setGenerationTab] = useState<"figure" | "models">("figure"),
     // Only explicit pane controls change visibility; selection updates its content.
     [inspectorOpen, setInspectorOpen] = useState(true),
@@ -174,19 +192,35 @@ export default function App() {
       { id: string; name: string; vision: boolean }[]
     >([]),
     [leftCollapsed, setLeftCollapsed] = useState(false),
+    [importing, setImporting] = useState(false),
+    [starting, setStarting] = useState(false),
+    [importWarnings, setImportWarnings] = useState<string[] | null>(null),
     [toast, setToast] = useState("");
+  const [boxSelect, setBoxSelect] = useState(false),
+    [groupingReview, setGroupingReview] = useState(false),
+    [draftMembers, setDraftMembers] = useState<GroupMember[]>([]),
+    [previewMember, setPreviewMember] = useState<GroupMember>();
+  const clearGroupingDraft = () => {
+    setBoxSelect(false);
+    setGroupingReview(false);
+    setDraftMembers([]);
+    setPreviewMember(undefined);
+  };
   const undoStack = useRef<FigureScene[]>([]),
     redoStack = useRef<FigureScene[]>([]),
     [historyVersion, setHistoryVersion] = useState(0),
     liveScene = useRef(scene),
     upload = useRef<HTMLInputElement>(null),
     importProject = useRef<HTMLInputElement>(null),
+    importSvgProject = useRef<HTMLInputElement>(null),
+    importEpoch = useRef(0),
+    startingRun = useRef(false),
     referenceUpload = useRef<HTMLInputElement>(null),
     runStart = useRef<FigureScene | undefined>(undefined);
   liveScene.current = scene;
   const liveRunId = useRef(runId);
   liveRunId.current = runId;
-  const busy = !!runId;
+  const busy = !!runId || importing || starting;
   const roleConnection=(key:typeof modelRoles[number][0])=>connectionSettings?.connections.find(c=>c.id===(config.connections?.[key]||connectionSettings.defaultConnectionId));
   const pictureConnection=connectionSettings?.connections.find(c=>c.id===(config.connections?.image||connectionSettings.defaultImageConnectionId));
   const allTextOpenRouter=modelRoles.every(([key])=>roleConnection(key)?.protocol==='openrouter');
@@ -204,6 +238,16 @@ export default function App() {
   const selectedModule = scene?.modules.find(
     (m) => m.id === selection.moduleId,
   );
+  const selectedManualGroup = scene?.manualGroups?.find(group => group.id === selection.groupId);
+  useEffect(() => {
+    if (selection.groupId && !selectedManualGroup) setSelection({});
+  }, [selection.groupId, selectedManualGroup]);
+  useEffect(() => {
+    clearGroupingDraft();
+  }, [scene?.id, focus]);
+  useEffect(() => {
+    if (busy) clearGroupingDraft();
+  }, [busy]);
   const rawElement =
     scene && selection.elementId
       ? allPrimitives(selectedModule?.elements ?? scene.annotations).find(
@@ -226,24 +270,22 @@ export default function App() {
     ),
     selectedRegion = scene?.regions.find((r) => r.id === selection.regionId);
   useEffect(() => {
+    const epoch = projectEpoch.current;
     void api<any>("/api/status")
       .then((s) => {
         setConfigured(s.configured);
         setReferences(s.references);
-        if (!s.configured)
-          setError(
-            apiNotConfigured,
-          );
       })
       .catch((e) => setError(String(e)));
-    if (!saved.scene && !embeddedPaperId)
+    if (!saved.scene && !saved.projectClosed && !saved.runId && !embeddedPaperId)
       void api<any>("/api/projects")
         .then(async (r) => {
-          if (r.projects?.length) {
+          if (r.projects?.length && epoch === projectEpoch.current && !projectClosed.current) {
             const s = await api<FigureScene>(
               "/api/projects/" + r.projects[0].id,
             );
-            if (!liveScene.current) {
+            if (!liveScene.current && epoch === projectEpoch.current && !projectClosed.current) {
+              liveScene.current = s;
               setScene(s);
               setTab("layers");
               setMaterials(s.materials ?? []);
@@ -269,7 +311,7 @@ export default function App() {
         event.data?.type !== "paper-workbench:load-figure"
       )
         return;
-      if (liveRunId.current) {
+      if (liveRunId.current || startingRun.current) {
         window.parent.postMessage(
           {
             type: "paper-workbench:figure-error",
@@ -279,8 +321,15 @@ export default function App() {
         );
         return;
       }
-      const value = event.data.scene as FigureScene | null;
+      let value = event.data.scene as FigureScene | null;
       if (value && value.schema !== "paper-atelier/1") return;
+      if (value) value = pruneManualGroups(value);
+      clearGroupingDraft();
+      invalidateProjectReads();
+      projectClosed.current = !value && event.data.projectClosed === true;
+      importEpoch.current++;
+      setImporting(false);
+      setImportWarnings(null);
       setScene(value ?? undefined);
       setTab(value ? "layers" : "materials");
       liveScene.current = value ?? undefined;
@@ -292,22 +341,45 @@ export default function App() {
       setHistoryVersion((v) => v + 1);
       setSelection({});
       setFocus("");
+      setRun(undefined);
+      setRunId("");
+      liveRunId.current = "";
+      runStart.current = undefined;
+      setShowBlueprint(false);
+      setShowPlan(false);
+      setTraceOpen(false);
+      setCloseProjectOpen(false);
+      setError("");
+      // Persist parent navigation before a quick iframe unmount can cancel autosave.
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({
+          ...readSaved(), scene: value ?? undefined,
+          materials: event.data.materials ?? [],
+          intent: event.data.intent ?? initialIntent,
+          ...(value?.agentConfig ? { config: { ...quality, ...value.agentConfig } } : {}),
+          runId: "", projectClosed: projectClosed.current,
+        }));
+      } catch {
+        setError("无法保存浏览器恢复记录，请导出项目 JSON 保存。");
+      }
       if (value?.agentConfig) setConfig({...quality,...value.agentConfig});
       setToast(
         value
           ? "已打开论文中的矢量对象。编辑后提交候选。"
-          : "论文材料已载入画板，请选择方法并生成图。",
+          : projectClosed.current ? "当前项目已关闭。" : "论文材料已载入画板，请选择方法并生成图。",
       );
     };
     window.addEventListener("message", receive);
     window.parent.postMessage(
-      { type: "paper-workbench:figure-ready" },
+      { type: "paper-workbench:figure-ready", projectClosed: projectClosed.current },
       location.origin,
     );
     return () => window.removeEventListener("message", receive);
   }, []);
   useEffect(() => {
+    const epoch = projectEpoch.current;
     const t = setTimeout(() => {
+      if (epoch !== projectEpoch.current) return;
       try {
         localStorage.setItem(
           storageKey,
@@ -318,6 +390,7 @@ export default function App() {
             config,
             chosenRefs,
             runId,
+            projectClosed: projectClosed.current,
           }),
         );
       } catch {
@@ -325,7 +398,7 @@ export default function App() {
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [scene, materials, intent, config, chosenRefs, runId]);
+  }, [scene, materials, intent, config, chosenRefs, runId, projectVersion]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 4500);
@@ -333,12 +406,13 @@ export default function App() {
   }, [toast]);
   useEffect(() => {
     if (!runId) return;
+    const epoch = projectEpoch.current;
     let stopped = false,
       timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
         const r = await api<RunRecord>("/api/runs/" + runId);
-        if (stopped) return;
+        if (stopped || epoch !== projectEpoch.current || projectClosed.current) return;
         setRun(r);
         if (r.scene) {
           setScene(r.scene);
@@ -361,7 +435,7 @@ export default function App() {
           }
         }
       } catch (e) {
-        if (!stopped) {
+        if (!stopped && epoch === projectEpoch.current && !projectClosed.current) {
           setError("无法读取任务状态：" + String(e));
           setRunId("");
         }
@@ -379,24 +453,27 @@ export default function App() {
       undoStack.current.push(structuredClone(liveScene.current));
     undoStack.current = undoStack.current.slice(-40);
     redoStack.current = [];
-    setScene(preserveReview ? next : { ...next, review: undefined });
+    const normalized = pruneManualGroups(next);
+    setScene(preserveReview ? normalized : { ...normalized, review: undefined });
     setHistoryVersion((v) => v + 1);
   };
   const undo = () => {
     if (!scene || busy) return;
+    clearGroupingDraft();
     const previous = undoStack.current.pop();
     if (previous) {
       redoStack.current.push(scene);
-      setScene(previous);
+      setScene(pruneManualGroups(previous));
       setHistoryVersion((v) => v + 1);
     }
   };
   const redo = () => {
     if (!scene || busy) return;
+    clearGroupingDraft();
     const next = redoStack.current.pop();
     if (next) {
       undoStack.current.push(scene);
-      setScene(next);
+      setScene(pruneManualGroups(next));
       setHistoryVersion((v) => v + 1);
     }
   };
@@ -418,6 +495,7 @@ export default function App() {
   }, [scene, busy, historyVersion]);
   const addMaterials = async (files: FileList | null) => {
     if (!files) return;
+    const epoch = projectEpoch.current;
     const list = await Promise.all(
       Array.from(files)
         .filter((f) => /\.(md|txt|json|csv)$/i.test(f.name))
@@ -427,6 +505,7 @@ export default function App() {
           content: await f.text(),
         })),
     );
+    if (epoch !== projectEpoch.current) return;
     setMaterials((prev) => [
       ...prev.filter((m) => !list.some((n) => n.name === m.name)),
       ...list,
@@ -434,12 +513,14 @@ export default function App() {
     if (!list.length) setError("请选择 Markdown、TXT、JSON 或 CSV 文件。");
   };
   const loadExample = async () => {
+    const epoch = projectEpoch.current;
     try {
       const r = await api<{ materials: Material[] }>("/api/materials/example");
+      if (epoch !== projectEpoch.current) return;
       setMaterials(r.materials);
         setToast("已载入合成演示材料，不包含真实实验结果。");
     } catch (e) {
-      setError(String(e));
+      if (epoch === projectEpoch.current) setError(String(e));
     }
   };
   const start = async (
@@ -447,6 +528,7 @@ export default function App() {
     resume = false,
     resumePlanning = false,
   ) => {
+    if (busy || startingRun.current) return;
     setError("");
     if (!materials.length) {
       setError("先导入研究材料，或载入工作区的两个 Markdown 文件。");
@@ -457,6 +539,10 @@ export default function App() {
       setError("请选择一个未锁定的模块。");
       return;
     }
+    startingRun.current = true;
+    setStarting(true);
+    invalidateProjectReads();
+    const epoch = projectEpoch.current;
     try {
       runStart.current = scene ? structuredClone(scene) : undefined;
       const localConfig = structuredClone(config);
@@ -489,6 +575,10 @@ export default function App() {
             : {}),
         }),
       );
+      if (epoch !== projectEpoch.current) return;
+      projectClosed.current = false;
+      if (embedded) window.parent.postMessage({ type: "paper-workbench:figure-opened" }, location.origin);
+      liveRunId.current = r.id;
       setRun({ id: r.id, status: "running", events: [] });
       setRunId(r.id);
       setGenerationOpen(false);
@@ -496,7 +586,10 @@ export default function App() {
       setSelection(local ? selection : {});
       setFocus("");
     } catch (e) {
-      setError(String(e));
+      if (epoch === projectEpoch.current) setError(String(e));
+    } finally {
+      startingRun.current = false;
+      setStarting(false);
     }
   };
   const changeModule = (patch: Record<string, unknown>) => {
@@ -604,18 +697,99 @@ export default function App() {
       }
     }
   };
-  const restore = async (file?: File) => {
-    if (!file) return;
+  const closeProject = (exportFirst: boolean) => {
+    if (busy || startingRun.current || !liveScene.current) return;
+    const current = liveScene.current;
+    if (exportFirst) {
+      try {
+        const name = current.title.replace(/[^\p{L}\p{N}_-]/gu, "_").slice(0, 70) || "research-figure";
+        saveFile(name + ".json", new Blob([JSON.stringify(current, null, 2)], { type: "application/json" }));
+      } catch {
+        setCloseProjectError("无法导出 JSON，当前项目仍然保留，请重试。");
+        return;
+      }
+    }
     try {
-      const value = JSON.parse(await file.text()) as FigureScene;
+      // A synchronous tombstone prevents both immediate reload and latest-project fallback.
+      localStorage.setItem(storageKey, JSON.stringify({
+        projectClosed: true, materials: [], intent: initialIntent, config,
+        chosenRefs: ["multi-panel", "nested-memory", "trajectory"], runId: "",
+      }));
+    } catch {
+      setCloseProjectError("无法保存关闭状态，请确认浏览器允许本地存储；当前项目仍然保留。");
+      return;
+    }
+    invalidateProjectReads();
+    clearGroupingDraft();
+    importEpoch.current++;
+    projectClosed.current = true;
+    liveScene.current = undefined;
+    liveRunId.current = "";
+    runStart.current = undefined;
+    undoStack.current = [];
+    redoStack.current = [];
+    setHistoryVersion(v => v + 1);
+    setScene(undefined);
+    setRun(undefined);
+    setRunId("");
+    setMaterials([]);
+    setReferences(refs => refs.filter(ref => !ref.dataUrl));
+    setChosenRefs(["multi-panel", "nested-memory", "trajectory"]);
+    setIntent(initialIntent);
+    setFigureType("method-overview");
+    setTab("materials");
+    setSelection({});
+    setFocus("");
+    setLocalInstruction("");
+    setError("");
+    setImportWarnings(null);
+    setShowBlueprint(false);
+    setShowPlan(false);
+    setTraceOpen(false);
+    setExportOpen(false);
+    setGenerationOpen(false);
+    setCloseProjectOpen(false);
+    setCloseProjectError("");
+    for (const input of [upload, importProject, importSvgProject, referenceUpload]) {
+      if (input.current) input.current.value = "";
+    }
+    if (embedded) window.parent.postMessage({ type: "paper-workbench:figure-closed" }, location.origin);
+    setToast(exportFirst ? "已导出 JSON 并关闭项目。" : "已关闭项目。");
+  };
+  const restore = async (file?: File) => {
+    if (!file || liveRunId.current || startingRun.current) return;
+    const epoch = ++importEpoch.current;
+    clearGroupingDraft();
+    invalidateProjectReads();
+    setImporting(true);
+    setError("");
+    try {
+      const isSvg = /\.svg$/i.test(file.name) || file.type === "image/svg+xml";
+      if (isSvg && file.size > 5 * 1024 * 1024) throw Error("SVG 文件不能超过 5 MiB。");
+      const source = await file.text();
+      const imported = isSvg ? await importSvg(source, file.name) : undefined;
+      let value: FigureScene = imported ? imported.scene : JSON.parse(source);
       if (
+        !value ||
         value.schema !== "paper-atelier/1" ||
         !Array.isArray(value.modules) ||
         !value.style
       )
         throw Error("不是 Paper Studio 矢量项目文件");
-      if (scene) apply(value, true);
-      else setScene(value);
+      value = pruneManualGroups(value);
+      if (epoch !== importEpoch.current) return;
+      projectClosed.current = false;
+      if (embedded) window.parent.postMessage({ type: "paper-workbench:figure-opened" }, location.origin);
+      setCloseProjectOpen(false);
+      if (liveScene.current) undoStack.current.push(structuredClone(liveScene.current));
+      undoStack.current = undoStack.current.slice(-40);
+      redoStack.current = [];
+      setScene(value);
+      setHistoryVersion(v => v + 1);
+      liveScene.current = value;
+      setRun(undefined);
+      setShowBlueprint(false);
+      setImportWarnings(imported?.warnings ?? null);
       setTab("layers");
       setMaterials(value.materials ?? materials);
       if (value.agentConfig) setConfig({...quality,...value.agentConfig});
@@ -630,13 +804,16 @@ export default function App() {
       }
       setSelection({});
       setFocus("");
-      setToast("已打开可编辑项目。");
+      setToast(isSvg ? "SVG 已转换为可编辑项目，可导出 JSON 保存。" : "已打开可编辑项目。");
     } catch (e) {
-      setError(String(e));
+      if (epoch === importEpoch.current) setError(String(e));
+    } finally {
+      if (epoch === importEpoch.current) setImporting(false);
     }
   };
   const addReference = async (files: FileList | null) => {
     if (!files) return;
+    const epoch = projectEpoch.current;
     for (const f of Array.from(files).slice(0, 3)) {
       if (!f.type.startsWith("image/") || f.size > 4_000_000) {
         setError("参考图请选择 4 MB 以内的图片。");
@@ -647,6 +824,7 @@ export default function App() {
         r.onload = () => resolve(String(r.result));
         r.readAsDataURL(f);
       });
+      if (epoch !== projectEpoch.current) return;
       const ref = {
         id: uid(),
         name: f.name,
@@ -670,12 +848,66 @@ export default function App() {
           export: "交付",
         }[stage] ?? stage);
   const layerPick = (moduleId: string, elementId?: string) => {
+    clearGroupingDraft();
     setSelection({
       moduleId,
       elementId,
       kind: elementId ? "primitive" : "module",
     });
     setFocus(elementId ? moduleId : "");
+  };
+  const startBoxSelection = () => {
+    if (!scene || busy) return;
+    setSelection({});
+    setDraftMembers([]);
+    setPreviewMember(undefined);
+    setGroupingReview(false);
+    setBoxSelect(true);
+    setShowBlueprint(false);
+    setTab("layers");
+    setError("");
+  };
+  const reviewBoxSelection = (members: GroupMember[]) => {
+    if (!scene || busy) return;
+    setBoxSelect(false);
+    setDraftMembers([...new Map(members.map(member => [memberKey(member), member])).values()]);
+    setPreviewMember(undefined);
+    setGroupingReview(true);
+    setInspectorOpen(true);
+  };
+  const confirmManualGroup = () => {
+    if (!scene || busy || draftMembers.length < 2) return;
+    try {
+      const next = createManualGroup(scene, draftMembers);
+      const group = next.manualGroups?.find(candidate => !scene.manualGroups?.some(previous => previous.id === candidate.id));
+      if (!group) throw Error("无法创建组合，请重新框选。");
+      apply(next);
+      clearGroupingDraft();
+      setSelection({ groupId: group.id, kind: "manual-group" });
+      setTab("layers");
+      setToast("已组合所选图层，可整体移动或缩放。");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const dissolveManualGroup = (id: string) => {
+    if (!scene || busy) return;
+    try {
+      apply(ungroupManualGroup(scene, id));
+      setSelection({});
+      clearGroupingDraft();
+      setToast("已取消组合，图中对象保持原样。");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const pickManualGroup = (id: string) => {
+    if (busy || !scene) return;
+    const group = scene.manualGroups?.find(candidate => candidate.id === id);
+    if (!group) return;
+    clearGroupingDraft();
+    setSelection({ groupId: id, kind: "manual-group" });
+    setFocus(group.moduleId ?? "");
   };
   // Some scenes intentionally omit module titles to avoid duplicating region headings.
   // Use those headings for editor navigation without changing the exported figure.
@@ -686,6 +918,70 @@ export default function App() {
         module.y + module.height <= region.y + region.height)
       .sort((a, b) => a.width * a.height - b.width * b.height)[0]?.title ||
     module.labels[0] || module.id;
+  const groupedMembers = new Set(scene?.manualGroups?.flatMap(group => group.members.map(memberKey)) ?? []);
+  const groupedPrimitiveIds = (moduleId?: string) => {
+    const ids = new Set<string>();
+    if (!scene) return ids;
+    const primitives = allPrimitives(moduleId ? scene.modules.find(module => module.id === moduleId)?.elements ?? [] : scene.annotations);
+    for (const group of scene.manualGroups ?? []) {
+      for (const member of group.members) {
+        if (member.kind !== "primitive" || member.moduleId !== moduleId) continue;
+        const primitive = primitives.find(item => item.id === member.id);
+        if (primitive) for (const item of allPrimitives([primitive])) ids.add(item.id);
+      }
+    }
+    return ids;
+  };
+  const layerSelectedMember: GroupMember | undefined = selection.elementId
+    ? { kind: "primitive", id: selection.elementId, moduleId: selection.moduleId }
+    : selection.moduleId ? { kind: "module", id: selection.moduleId } : undefined;
+  const hiddenAnnotationIds = groupedPrimitiveIds();
+  const renderPrimitiveLayer = (element: Primitive, moduleId?: string) => <button
+    key={element.id} data-layer-element={element.id}
+    className={(moduleId ? "" : "layer-row ") + (selection.elementId === element.id && selection.moduleId === moduleId ? "selected" : "")}
+    onClick={() => {
+      if (moduleId) layerPick(moduleId, element.id);
+      else {
+        clearGroupingDraft();
+        setSelection({ elementId: element.id, kind: "primitive" });
+        setFocus("");
+      }
+    }}>
+    {element.type === "text" ? <Type size={12} /> : element.type === "group" ? <Layers size={12} /> : <Square size={12} />}
+    <span>{element.text?.replace(/\n/g, " ") ?? element.id}</span>
+    {element.locked && <Lock size={10} />}
+  </button>;
+  const renderGroupedMember = (member: GroupMember) => {
+    if (!scene) return null;
+    if (member.kind === "module") {
+      const module = scene.modules.find(item => item.id === member.id);
+      return module ? renderModuleLayer(module) : null;
+    }
+    if (member.kind === "primitive") {
+      const elements = member.moduleId ? scene.modules.find(module => module.id === member.moduleId)?.elements ?? [] : scene.annotations;
+      const element = allPrimitives(elements).find(item => item.id === member.id);
+      return element ? renderPrimitiveLayer(element, member.moduleId) : null;
+    }
+    return null;
+  };
+  const renderModuleLayer = (module: FigureScene["modules"][number]) => {
+    const hiddenIds = groupedPrimitiveIds(module.id);
+    const containsSelection = selection.moduleId === module.id || selectedManualGroup?.moduleId === module.id || focus === module.id;
+    return <div className="layer-module" key={module.id}>
+      <button data-layer-module={module.id} className={"layer-row " + (containsSelection ? "selected" : "")}
+        onClick={() => layerPick(module.id)}>
+        <Layers size={14} /><strong>{moduleLabel(module)}</strong>
+        {module.locked && <Lock size={11} />}<ChevronRight size={12} />
+      </button>
+      {containsSelection && <div className="layer-elements">
+        {scene && <ManualGroupLayers key={`${scene.id}:${module.id}`} scene={scene} moduleId={module.id} busy={busy}
+          selectedGroupId={selection.groupId} selectedMember={layerSelectedMember}
+          onSelect={pickManualGroup} renderMember={renderGroupedMember} />}
+        {allPrimitives(module.elements).filter(element => element.type !== "group" && !hiddenIds.has(element.id))
+          .map(element => renderPrimitiveLayer(element, module.id))}
+      </div>}
+    </div>;
+  };
   useEffect(() => {
     if (!exportOpen) return;
     const close = (event: PointerEvent) => {
@@ -948,8 +1244,12 @@ export default function App() {
         type="file"
         ref={importProject}
         accept=".json"
-        onChange={(e) => void restore(e.target.files?.[0])}
+        aria-label="打开 JSON 项目"
+        onChange={(e) => { void restore(e.target.files?.[0]); e.target.value = ""; }}
       />
+      <input hidden type="file" ref={importSvgProject} accept=".svg,image/svg+xml"
+        aria-label="直接解析 SVG 项目"
+        onChange={(e) => { void restore(e.target.files?.[0]); e.target.value = ""; }} />
       <input hidden multiple type="file" ref={upload} accept=".md,.txt,.json,.csv" onChange={(e) => { void addMaterials(e.target.files); e.target.value = ""; }} />
       <input hidden multiple type="file" ref={referenceUpload} accept="image/*" onChange={(e) => { void addReference(e.target.files); e.target.value = ""; }} />
           <div className="editor-toolbar">
@@ -996,6 +1296,11 @@ export default function App() {
               >
                 <Square size={16} />
               </button>
+              <button className="text-button" title="拖出矩形，选择要组合的图层" aria-label="框选图层"
+                aria-pressed={boxSelect || groupingReview} disabled={!scene || busy}
+                onClick={() => boxSelect || groupingReview ? clearGroupingDraft() : startBoxSelection()}>
+                <Layers size={16} /><span>框选图层</span>
+              </button>
             </div>
             <span className="editor-title" title={scene?.title}>{scene?.title ?? "新建图表"}</span>
             <div className="editor-actions">
@@ -1003,13 +1308,19 @@ export default function App() {
               {run?.visualReference && <button className="text-button" aria-pressed={showBlueprint} onClick={()=>setShowBlueprint(!showBlueprint)}>
                 {showBlueprint?'返回矢量图':'视觉方案'}
               </button>}
-              <button title="打开项目" aria-label="打开项目" disabled={busy} onClick={() => importProject.current?.click()}>
+              <button title="打开 JSON 项目" aria-label="打开项目" disabled={busy} onClick={() => importProject.current?.click()}>
                 <FolderOpen size={16} />
+              </button>
+              <button className="text-button" title="直接解析 SVG 为可编辑对象，无需模型或 API" disabled={busy} onClick={() => importSvgProject.current?.click()}>
+                <Upload size={15} /><span>导入 SVG</span>
+              </button>
+              <button className="text-button" title={busy ? "请先完成导入或停止生成任务" : "关闭当前项目"} aria-label="关闭项目" aria-haspopup="dialog" disabled={!scene || busy} onClick={() => { setExportOpen(false); setCloseProjectError(""); setCloseProjectOpen(true); }}>
+                <FolderClosed size={15} /><span>关闭项目</span>
               </button>
               <button className="text-button generation-trigger" aria-haspopup="dialog" onClick={() => setGenerationOpen(true)}>
                 <Sparkles size={15} /><span>生成图表</span>
               </button>
-              {busy && <button title="停止任务" aria-label="停止任务" className="danger" onClick={() => void api("/api/runs/" + runId + "/cancel", jsonPost({}))}><StopCircle size={16} /></button>}
+              {runId && <button title="停止任务" aria-label="停止任务" className="danger" onClick={() => void api("/api/runs/" + runId + "/cancel", jsonPost({}))}><StopCircle size={16} /></button>}
               <button title="运行记录" aria-label="运行记录" aria-expanded={traceOpen} className={traceOpen ? "active" : ""} onClick={() => setTraceOpen(!traceOpen)}>
                 <Workflow size={16} />
               </button>
@@ -1046,74 +1357,27 @@ export default function App() {
                   <h3>图层</h3>
                   <span>
                     {scene
-                      ? allPrimitives(scene.modules.flatMap((m) => m.elements))
-                          .length
+                      ? allPrimitives([...scene.modules.flatMap((m) => m.elements), ...scene.annotations]).length
                       : 0}{" "}
                     个对象
                   </span>
                 </div>
                 <p className="hint">
-                  双击模块，编辑内部对象。
+                  {boxSelect ? "在画布拖出矩形框选，松开后确认要组合的对象。" : "双击模块编辑内部对象，也可框选多个图层组合。"}
                 </p>
+                {boxSelect && <button className="full-button" disabled={busy} onClick={clearGroupingDraft}>取消框选</button>}
                 {!scene && (
                   <div className="empty-small">生成或打开项目后显示图层。</div>
                 )}
-                {scene?.modules.map((m) => (
-                  <div className="layer-module" key={m.id}>
-                    <button
-                      data-layer-module={m.id}
-                      className={
-                        "layer-row " +
-                        (selection.moduleId === m.id ? "selected" : "")
-                      }
-                      onClick={() => layerPick(m.id)}
-                    >
-                      <Layers size={14} />
-                      <strong>{moduleLabel(m)}</strong>
-                      {m.locked && <Lock size={11} />}
-                      <ChevronRight size={12} />
-                    </button>
-                    {selection.moduleId === m.id && (
-                      <div className="layer-elements">
-                        {allPrimitives(m.elements)
-                          .filter((e) => e.type !== "group")
-                          .map((e) => (
-                            <button
-                              key={e.id}
-                              className={
-                                selection.elementId === e.id ? "selected" : ""
-                              }
-                              onClick={() => layerPick(m.id, e.id)}
-                            >
-                              {e.type === "text" ? (
-                                <Type size={12} />
-                              ) : (
-                                <Square size={12} />
-                              )}
-                              <span>{e.text?.replace(/\n/g, " ") ?? e.id}</span>
-                              {e.locked && <Lock size={10} />}
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {scene && <ManualGroupLayers key={scene.id} scene={scene} busy={busy}
+                  selectedGroupId={selection.groupId} selectedMember={layerSelectedMember}
+                  onSelect={pickManualGroup} renderMember={renderGroupedMember} />}
+                {scene?.modules.filter(module => !groupedMembers.has(memberKey({ kind: "module", id: module.id }))).map(renderModuleLayer)}
                 {scene?.annotations.length ? (
                   <div className="layer-module">
                     <h4>整图文字与标注</h4>
-                    {allPrimitives(scene.annotations).map((e) => (
-                      <button
-                        className="layer-row"
-                        key={e.id}
-                        onClick={() => {
-                          setSelection({ elementId: e.id, kind: "primitive" });
-                          setFocus("");
-                        }}
-                      >
-                        {e.type === "text" ? <Type size={12} /> : <Square size={12} />}
-                        <span>{e.text ?? e.id}</span>
-                      </button>
-                    ))}
+                    {allPrimitives(scene.annotations).filter(element => !hiddenAnnotationIds.has(element.id))
+                      .map(element => renderPrimitiveLayer(element))}
                   </div>
                 ) : null}
               </>
@@ -1143,6 +1407,18 @@ export default function App() {
               </button>
             </div>
           )}
+          {importing && <div className="svg-import-notice" role="status">
+            <Loader2 size={16} /><span>正在读取并转换项目…</span>
+          </div>}
+          {importWarnings !== null && scene && <div className="svg-import-notice" role="status" aria-label="SVG 导入结果">
+            <Check size={16} />
+            <div>
+              <strong>SVG 已转换为可编辑项目</strong>
+              <p>从图层选择对象，或双击模块进入内部编辑；完成后可导出 JSON 保存。</p>
+              {importWarnings.length > 0 && <ul>{importWarnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
+            </div>
+            <button aria-label="关闭 SVG 导入提示" onClick={() => setImportWarnings(null)}><X size={14} /></button>
+          </div>}
           <div className="board-area">
             {run?.visualReference && (showBlueprint||!scene) ? <div className="blueprint-preview">
               <img src={run.visualReference} alt="选中的论文图视觉方案"/>
@@ -1151,12 +1427,18 @@ export default function App() {
               focus={focus}
               selection={selection}
               onFocus={(id) => {
+                clearGroupingDraft();
                 setFocus(id);
                 if (id) setSelection({ moduleId: id });
               }}
               onSelect={setSelection}
               onChange={apply}
               editable={!busy}
+              boxSelect={boxSelect}
+              groupingReview={groupingReview}
+              onBoxSelect={reviewBoxSelection}
+              draftMembers={draftMembers}
+              previewMember={previewMember}
             />}
             {!scene && !run?.visualReference && (
               <div className="welcome">
@@ -1164,10 +1446,15 @@ export default function App() {
                   <Workflow size={31} />
                 </div>
                 <h1>新建图表</h1>
-                <p>导入研究材料，选择图类型后开始生成。</p>
-                <button className="button dark" onClick={() => setGenerationOpen(true)}>
-                  <Sparkles size={15} /> 生成图表
-                </button>
+                <p>导入已有 SVG 直接编辑，无需配置 API；也可从研究材料生成新图。</p>
+                <div className="welcome-actions">
+                  <button className="button dark" disabled={busy} onClick={() => importSvgProject.current?.click()}>
+                    <Upload size={15} /> 导入 SVG 开始编辑
+                  </button>
+                  <button className="button" disabled={busy} onClick={() => setGenerationOpen(true)}>
+                    <Sparkles size={15} /> 生成图表
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1229,16 +1516,38 @@ export default function App() {
                 ? allPrimitives(scene.modules.flatMap((m) => m.elements))
                     .length + allPrimitives(scene.annotations).length
                 : 0}{" "}
-              个矢量对象
+              个对象
             </span>
           </footer>
         </section>
         <aside className={"inspector " + (inspectorOpen ? "active" : "")} aria-label="对象属性" aria-hidden={!inspectorOpen}>
           <div className="inspector-header">
-            <strong>{selectedElement ? "对象属性" : selectedModule ? "模块属性" : selectedConnector ? "连接属性" : selectedRegion ? "分区属性" : "图表属性"}</strong>
+            <strong>{groupingReview ? "确认框选" : selectedManualGroup ? "组合属性" : selectedElement ? "对象属性" : selectedModule ? "模块属性" : selectedConnector ? "连接属性" : selectedRegion ? "分区属性" : "图表属性"}</strong>
             <button title="关闭属性" aria-label="关闭属性" onClick={() => setInspectorOpen(false)}><X size={16} /></button>
           </div>
           <div className="inspector-scroll">
+            {groupingReview && scene && <ManualGroupingPanel scene={scene} members={draftMembers} preview={previewMember} busy={busy}
+              onPreview={setPreviewMember}
+              onRemove={member => {
+                setDraftMembers(previous => previous.filter(candidate => memberKey(candidate) !== memberKey(member)));
+                if (previewMember && memberKey(previewMember) === memberKey(member)) setPreviewMember(undefined);
+              }}
+              onRestart={startBoxSelection} onCancel={clearGroupingDraft} onConfirm={confirmManualGroup} />}
+            {selectedManualGroup && scene && <section className="manual-group-properties" data-testid="manual-group-properties">
+              <div className="object-type">组合 <span>{selectedManualGroup.members.length} 个成员</span></div>
+              <label className="field">组合名称
+                <input aria-label="组合名称" key={`${selectedManualGroup.id}:${selectedManualGroup.title}`}
+                  defaultValue={selectedManualGroup.title} disabled={busy}
+                  onBlur={event => {
+                    const title = event.target.value.trim();
+                    if (title && title !== selectedManualGroup.title) apply({ ...scene,
+                      manualGroups: scene.manualGroups?.map(group => group.id === selectedManualGroup.id ? { ...group, title } : group),
+                    });
+                  }} />
+              </label>
+              <p className="hint">拖动组合可整体移动，拖动角点可等比缩放。展开左侧组合可选择单个成员。</p>
+              <button className="full-button" disabled={busy} onClick={() => dissolveManualGroup(selectedManualGroup.id)}>取消组合</button>
+            </section>}
             {selectedConnector && scene && (
               <>
                 <div className="object-type">CONNECTOR · 语义连接</div>
@@ -1495,7 +1804,7 @@ export default function App() {
             {selectedElement && (
               <>
                 <div className="object-type">
-                  {selectedElement.type.toUpperCase()} <span>原生矢量对象</span>
+                  {selectedElement.type.toUpperCase()} <span>{selectedElement.type === "image" ? "内嵌图片对象" : "原生矢量对象"}</span>
                 </div>
                 {selectedElement.type === "text" && (
                   <>
@@ -1536,7 +1845,7 @@ export default function App() {
                 <div className="field-grid">
                   {(selectedElement.type === "text"
                     ? (["x", "y", "width"] as const)
-                    : ["path", "polygon", "group"].includes(
+                    : ["path", "polygon", "group", "image"].includes(
                           selectedElement.type,
                         )
                       ? (["x", "y", "scaleX", "scaleY"] as const)
@@ -1560,7 +1869,7 @@ export default function App() {
                     </label>
                   ))}
                 </div>
-                <label className="field">
+                {selectedElement.type !== "image" && <><label className="field">
                   填充颜色
                   <input
                     value={selectedElement.fill ?? ""}
@@ -1592,6 +1901,7 @@ export default function App() {
                     onChange={(e) => changeElement({ stroke: e.target.value })}
                   />
                 </label>
+                </>}
                 <div className="action-row">
                   <button
                     disabled={busy || selectedModule?.locked}
@@ -1617,7 +1927,7 @@ export default function App() {
                   </button>
                 </div>
                 <p className="hint">
-                  锁定对象在局部重生成中保留。文字也可以在画板内双击修改。
+                  {selectedElement.type === "image" ? "图片可以移动、缩放和旋转；图片内部的像素不会转换成矢量或文字。" : "锁定对象在局部重生成中保留。文字也可以在画板内双击修改。"}
                 </p>
               </>
             )}
@@ -1745,7 +2055,7 @@ export default function App() {
             {!selectedModule &&
               !selectedElement &&
               !selectedConnector &&
-              !selectedRegion && (
+              !selectedRegion && !selectedManualGroup && !groupingReview && (
                 <>
                   <p className="hint">选中画布或图层中的对象以编辑。</p>
                   {scene && (
@@ -1836,7 +2146,7 @@ export default function App() {
                   : "开始生成"}
               {!busy && <ArrowRight size={16} />}
             </button>
-            {busy && (
+            {runId && (
               <button
                 className="cancel"
                 onClick={() =>
@@ -1855,6 +2165,8 @@ export default function App() {
           {figureSettings}
         </> : modelSettings}
       </GenerationDialog>}
+      {closeProjectOpen && scene && <CloseProjectDialog title={scene.title} error={closeProjectError}
+        onCancel={() => setCloseProjectOpen(false)} onClose={closeProject} />}
       {toast && (
         <div className="toast">
           <Check size={15} />
